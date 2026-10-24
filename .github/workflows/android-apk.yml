@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java
@@ -30,26 +30,72 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Extract project
+      - name: Extract project ZIP
         run: |
           mkdir project
           unzip -q ROSTOEditor-Android-source.zip -d project
+          test -f project/app/build.gradle.kts
+          test -f project/app/src/main/java/com/rosto/editor/MainActivity.kt
 
-      - name: Fix Java and Kotlin targets
+      - name: Fix Kotlin source
+        shell: bash
         run: |
-          python3 -c "from pathlib import Path; p=Path('project/app/build.gradle.kts'); s=p.read_text(); marker='    }\n}'; replacement='    }\n    compileOptions {\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17\n    }\n    kotlinOptions {\n        jvmTarget = \"17\"\n    }\n}'; assert marker in s, 'Gradle configuration not found'; p.write_text(s.replace(marker, replacement, 1))"
+          FILE="project/app/src/main/java/com/rosto/editor/MainActivity.kt"
 
-      - name: Build APK
+          sed -i \
+            's/import androidx.media3.effect.Effects/import androidx.media3.transformer.Effects/' \
+            "$FILE"
+
+          sed -i \
+            's/import android.app.Activity/import androidx.activity.ComponentActivity/' \
+            "$FILE"
+
+          sed -i \
+            's/class MainActivity : Activity()/class MainActivity : ComponentActivity()/' \
+            "$FILE"
+
+          echo "Updated Android source imports."
+
+      - name: Configure Java and Kotlin targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("project/app/build.gradle.kts")
+          s = p.read_text()
+
+          if "compileOptions {" not in s:
+              marker = '        versionName = "0.1.0"\n    }\n}'
+              replacement = '''        versionName = "0.1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }'''
+              if marker not in s:
+                  raise SystemExit("Could not locate Android Gradle configuration")
+              s = s.replace(marker, replacement, 1)
+
+          p.write_text(s)
+          PY
+
+      - name: Build debug APK
         run: |
           cd project
           gradle assembleDebug
 
-      - name: Verify APK
+      - name: Verify APK exists
         run: |
-          test -s project/app/build/outputs/apk/debug/app-debug.apk
-          ls -lh project/app/build/outputs/apk/debug/app-debug.apk
+          APK="project/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          file "$APK"
+          ls -lh "$APK"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ROSTO-Editor-APK
