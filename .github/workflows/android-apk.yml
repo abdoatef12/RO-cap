@@ -1,3 +1,4 @@
+
 name: Build ROSTO APK
 
 on:
@@ -34,10 +35,41 @@ jobs:
           mkdir project
           unzip -q ROSTOEditor-Android-source.zip -d project
 
+      - name: Fix Java and Kotlin targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("project/app/build.gradle.kts")
+          s = p.read_text()
+
+          old = '        versionName = "0.1.0"\n    }\n}'
+          new = '''        versionName = "0.1.0"
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}'''
+
+          if old not in s:
+              raise SystemExit("Could not find the expected Android Gradle configuration")
+
+          p.write_text(s.replace(old, new, 1))
+          PY
+
       - name: Build APK
         run: |
           cd project
           gradle assembleDebug
+
+      - name: Verify APK
+        run: |
+          test -s project/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh project/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
